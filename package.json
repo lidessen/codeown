@@ -33,6 +33,7 @@
     "release": "bumpp && npm publish"
   },
   "devDependencies": {
+    "@types/minimatch": "^6.0.0",
     "@types/node": "^22.15.17",
     "@types/react": "^19.1.12",
     "bumpp": "^10.1.0",
@@ -45,6 +46,7 @@
     "commander": "^14.0.0",
     "execa": "^9.6.0",
     "ink": "^6.2.3",
+    "minimatch": "^10.0.3",
     "react": "^19.1.1"
   }
 }

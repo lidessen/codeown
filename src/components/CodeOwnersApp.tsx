@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
-import { Box, Text } from "ink";
-import { Spinner, StatusMessage, ProgressBar, Badge } from "@inkjs/ui";
-import { CodeOwnersGenerator } from "../lib/CodeOwnersGenerator";
+import { useEffect, useState } from "react";
+import { Box, Text, useApp, useInput } from "ink";
+import { Badge, ProgressBar, Spinner, StatusMessage } from "@inkjs/ui";
+import { CodeOwnersGenerator } from "../lib/generator";
 
 interface AnalysisResult {
   filepath: string;
@@ -35,7 +35,7 @@ function HeaderDisplay({
   projectInfo?: { name: string; branch: string };
 }) {
   return (
-    <Box borderStyle="round" borderColor="blue" padding={1} marginBottom={1}>
+    <Box borderStyle="round" borderColor="blue" padding={1}>
       <Box flexDirection="column">
         <Box gap={1}>
           <Text bold color="blue">
@@ -69,8 +69,9 @@ function AnalysisProgressDisplay({
   pendingFiles: string[];
   currentFile: string;
 }) {
-  const progress =
-    totalFiles > 0 ? Math.round((processedFiles / totalFiles) * 100) : 0;
+  const progress = totalFiles > 0
+    ? Math.round((processedFiles / totalFiles) * 100)
+    : 0;
 
   return (
     <Box borderStyle="round" borderColor="gray" padding={1} marginBottom={1}>
@@ -138,12 +139,12 @@ function AnalysisSummaryDisplay({
   };
 }) {
   const sortedContributors = Object.entries(stats.stats).sort(
-    ([, a], [, b]) => b - a
+    ([, a], [, b]) => b - a,
   );
   const maxFiles = Math.max(...Object.values(stats.stats));
 
   return (
-    <>
+    <Box borderStyle="round" borderDimColor padding={1}>
       <Box gap={1} flexDirection="column" width="100%">
         <Text bold>Analysis Summary</Text>
 
@@ -160,15 +161,15 @@ function AnalysisSummaryDisplay({
             .slice(0, 10)
             .map(([contributor, fileCount], index) => {
               const percentage = ((fileCount / stats.totalFiles) * 100).toFixed(
-                0
+                0,
               );
               const barWidth = Math.round((fileCount / maxFiles) * 20);
-              const bar =
-                "█".repeat(barWidth) + "░".repeat(Math.max(0, 20 - barWidth));
+              const bar = "█".repeat(barWidth) +
+                "░".repeat(Math.max(0, 20 - barWidth));
 
               return (
                 <Box key={contributor}>
-                  <Text dimColor>{(index + 1).toString().padStart(2)}. </Text>
+                  <Text dimColor>{(index + 1).toString().padStart(2)}.</Text>
                   <Text dimColor>{contributor.padEnd(25)}</Text>
                   <Text color="gray">{bar}</Text>
                   <Text color="cyan">
@@ -186,8 +187,7 @@ function AnalysisSummaryDisplay({
                 And {sortedContributors.length - 10} more contributors with{" "}
                 {sortedContributors
                   .slice(10)
-                  .reduce((sum, [, count]) => sum + count, 0)}{" "}
-                files (
+                  .reduce((sum, [, count]) => sum + count, 0)} files (
                 {(
                   (sortedContributors
                     .slice(10)
@@ -204,20 +204,28 @@ function AnalysisSummaryDisplay({
         <Text bold>Output</Text>
         <Text dimColor>CODEOWNERS file saved to repository root</Text>
       </Box>
-    </>
-  );
-}
-
-function FooterDisplay() {
-  return (
-    <Box marginTop={1} justifyContent="space-between">
-      <Text dimColor>[Space] Pause [Q] Quit</Text>
-      <Text dimColor>v1.2.0</Text>
     </Box>
   );
 }
 
-export function CodeOwnersApp() {
+function FooterDisplay() {
+  const { exit } = useApp();
+
+  useInput((input) => {
+    if (input === "q") {
+      exit();
+    }
+  });
+
+  return (
+    <Box justifyContent="space-between">
+      <Text dimColor>[Q] Quit</Text>
+      <Text dimColor>v{__APP_VERSION__}</Text>
+    </Box>
+  );
+}
+
+export function CodeOwnersApp({ configPath }: { configPath?: string }) {
   const [state, setState] = useState<AppState>({
     phase: "init",
     totalFiles: 0,
@@ -230,11 +238,18 @@ export function CodeOwnersApp() {
   });
 
   useEffect(() => {
+    const abortController = new AbortController();
+
     const runAnalysis = async () => {
       try {
         setState((prev) => ({ ...prev, phase: "init" }));
 
-        const generator = new CodeOwnersGenerator();
+        const generator = new CodeOwnersGenerator({
+          abortSignal: abortController.signal,
+        });
+
+        // Load configuration if provided
+        await generator.loadConfig(configPath);
 
         // Get project info
         const projectInfo = await generator.getProjectInfo();
@@ -255,7 +270,7 @@ export function CodeOwnersApp() {
             setState((prev) => {
               const newCompleted = [...prev.completedFiles];
               const newPending = prev.pendingFiles.filter(
-                (f) => f !== currentFile
+                (f) => f !== currentFile,
               );
 
               if (
@@ -275,7 +290,7 @@ export function CodeOwnersApp() {
                 pendingFiles: newPending,
               };
             });
-          }
+          },
         );
 
         setState((prev) => ({
@@ -291,11 +306,15 @@ export function CodeOwnersApp() {
         const stats = generator.getOwnershipStats();
 
         const endTime = new Date();
-        const totalTime = `${Math.floor(
-          (endTime.getTime() - state.startTime.getTime()) / 1000 / 60
-        )}m ${Math.floor(
-          ((endTime.getTime() - state.startTime.getTime()) / 1000) % 60
-        )}s`;
+        const totalTime = `${
+          Math.floor(
+            (endTime.getTime() - state.startTime.getTime()) / 1000 / 60,
+          )
+        }m ${
+          Math.floor(
+            ((endTime.getTime() - state.startTime.getTime()) / 1000) % 60,
+          )
+        }s`;
 
         setState((prev) => ({
           ...prev,
@@ -307,8 +326,14 @@ export function CodeOwnersApp() {
           rulesGenerated,
         }));
       } catch (error) {
-        const errorMsg =
-          error instanceof Error ? error.message : "Unknown error occurred";
+        // Don't show error if operation was aborted
+        if (error instanceof Error && error.message === "Operation aborted") {
+          return;
+        }
+
+        const errorMsg = error instanceof Error
+          ? error.message
+          : "Unknown error occurred";
         setState((prev) => ({
           ...prev,
           phase: "error",
@@ -318,6 +343,10 @@ export function CodeOwnersApp() {
     };
 
     runAnalysis();
+
+    return () => {
+      abortController.abort();
+    };
   }, []);
 
   return (
@@ -346,7 +375,7 @@ export function CodeOwnersApp() {
       )}
 
       {state.phase === "complete" && state.stats && (
-        <Box flexDirection="column" marginTop={1}>
+        <>
           <AnalysisSummaryDisplay
             totalFiles={state.totalFiles}
             totalTime={state.totalTime || "0s"}
@@ -360,7 +389,7 @@ export function CodeOwnersApp() {
               Analysis complete.
             </Text>
           </Box>
-        </Box>
+        </>
       )}
 
       {state.phase === "error" && (
